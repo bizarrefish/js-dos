@@ -4,7 +4,7 @@ if(${EMSCRIPTEN})
 	set(OPT_FLAG "-Oz")
 	set(USE_PORTS "-s USE_ZLIB=1")
 	set(CMAKE_C_FLAGS "${OPT_FLAG} -w -Werror=return-type ${USE_PORTS}")
-	set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${USE_PORTS}")
+	set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${USE_PORTS} -Wno-c++11-narrowing")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
 		${USE_PORTS} \
 		${OPT_FLAG} \

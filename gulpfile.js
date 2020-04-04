@@ -27,15 +27,15 @@ gulp.task("docco", function (cb) {
     });
 });
 
-gulp.task("docs", ["docco"], function (cb) {
+gulp.task("docs", gulp.series("docco", function (cb) {
     exec('find dist/docs -name "*.html" -exec bash -c \'mv "$1" "${1%.html}".md\' - \'{}\' \\;', function (err, stdout, stderr) {
         console.log(stdout);
         console.log(stderr);
         cb(err);
     });
-});
+}));
 
-gulp.task('generateBuildInfo', function () {
+gulp.task('generateBuildInfo', async function () {
     var info = getRepoInfo();
     var wasmHash = md5File.sync('build/wdosbox.wasm');
     var asmHash = md5File.sync('build/dosbox.js');
@@ -73,7 +73,7 @@ gulp.task('copyAssets', function () {
         'build-emterp/wdosbox-emterp-profiling.js', 'build-emterp/wdosbox-emterp-profiling.js.symbols',
         'build-emterp/dosbox-emterp.js', 'build-emterp/dosbox-emterp.js.mem', 'build-emterp/dosbox-emterp.js.symbols',
         'build-emterp/dosbox-nosync.js', 'build-emterp/dosbox-nosync.js.mem', 'build-emterp/dosbox-nosync.js.symbols',
-    ])
+                    ], {allowEmpty:true})
         .pipe(gulp.dest('dist'));
 });
 
@@ -96,7 +96,7 @@ gulp.task('copyWasm', function () {
         'build/wdosbox-profiling.wasm',
         'build/wdosbox-nosync-profiling.wasm',
         'build-emterp/wdosbox-emterp-profiling.wasm',
-    ]).pipe(rename({ extname: ".wasm.js" }))
+    ],{allowEmpty:true}).pipe(rename({ extname: ".wasm.js" }))
         .pipe(gulp.dest('dist'));
 });
 
@@ -115,7 +115,7 @@ gulp.task('copyPackageJson', function () {
         .pipe(gulp.dest('dist'));
 })
 
-gulp.task('test', ['copyAssetsTest'], function () {
+gulp.task('test', gulp.series('copyAssetsTest', function () {
     return browserify({
         basedir: '.',
         debug: true,
@@ -141,10 +141,10 @@ gulp.task('test', ['copyAssetsTest'], function () {
         .pipe(sourcemaps.init({ loadMaps: true }))
         .pipe(sourcemaps.write('./'))
         .pipe(gulp.dest('dist/test'));
-});
+}));
 
-gulp.task('default', ['test', 'generateBuildInfo', 'copyWasm', 'copyAssets', /* 'rewriteDefaultVersion', */
-    'copyTypeScript', 'docs', 'copyPackageJson'], function () {
+gulp.task('default', gulp.series('test', 'generateBuildInfo', 'copyWasm', 'copyAssets', /* 'rewriteDefaultVersion', */
+    'copyTypeScript', 'docs', 'copyPackageJson', async function () {
         return browserify({
             basedir: '.',
             debug: true,
@@ -164,4 +164,4 @@ gulp.task('default', ['test', 'generateBuildInfo', 'copyWasm', 'copyAssets', /* 
             .pipe(uglify())
             .pipe(sourcemaps.write('./'))
             .pipe(gulp.dest('dist'));
-    });
+    }));

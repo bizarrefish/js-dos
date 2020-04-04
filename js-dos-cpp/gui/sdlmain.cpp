@@ -1382,9 +1382,9 @@ int main(int argc, char* argv[]) {
 		canvasStyle.imageRendering = "pixelated";
 	);
 	// register no-op callbacks for defered events
-	emscripten_set_mousedown_callback("#canvas", NULL, false, [](int eventType, const EmscriptenMouseEvent *mouseEvent, void *userData) {
+	emscripten_set_mousedown_callback("#jsdos", NULL, false, [](int eventType, const EmscriptenMouseEvent *mouseEvent, void *userData) {
 		if (canUsePointerLock && !isPointerLocked()) {
-			emscripten_request_pointerlock("#canvas", false);
+			emscripten_request_pointerlock("#jsdos", false);
 		}
 		return 0;
 	});
