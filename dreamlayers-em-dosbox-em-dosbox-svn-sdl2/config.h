@@ -73,6 +73,7 @@
 /* #undef C_HEAVY_DEBUG */
 
 /* Define to 1 to enable IPX over Internet networking, requires SDL_net */
+#define C_IPX 1
 /* #undef C_IPX */
 
 /* Define to 1 to enable internal modem support, requires SDL_net */

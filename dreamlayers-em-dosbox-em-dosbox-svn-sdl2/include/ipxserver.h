@@ -19,7 +19,9 @@
 #ifndef DOSBOX_IPXSERVER_H_
 #define DOSBOX_IPXSERVER_H_
 
-#if C_IPX
+
+
+#if 0
 
 #include "SDL_net.h"
 
@@ -40,6 +42,25 @@ struct packetBuffer {
 void IPX_StopServer();
 bool IPX_StartServer(Bit16u portnum);
 bool IPX_isConnectedToServer(Bits tableNum, IPaddress ** ptrAddr);
+
+Bit8u packetCRC(Bit8u *buffer, Bit16u bufSize);
+
+#else
+
+
+#include <stdint.h>
+
+typedef uint8_t Uint8;
+typedef uint16_t Uint16;
+typedef uint32_t Uint32;
+
+#define SOCKETTABLESIZE 16
+#define CONVIP(hostvar) hostvar & 0xff, (hostvar >> 8) & 0xff, (hostvar >> 16) & 0xff, (hostvar >> 24) & 0xff
+#define CONVIPX(hostvar) hostvar[0], hostvar[1], hostvar[2], hostvar[3], hostvar[4], hostvar[5]
+
+static void IPX_StopServer(void) { }
+static bool IPX_StartServer(Bit16u portnum) { return false; }
+static bool IPX_isConnectedToServer(Bits tableNum, IPaddress ** ptrAddr) { return false; }
 
 Bit8u packetCRC(Bit8u *buffer, Bit16u bufSize);
 

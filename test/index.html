@@ -26,11 +26,12 @@
   <canvas id="jsdos"></canvas>
   <script>
     Dos(document.getElementById("jsdos"), {
-      wdosboxUrl: "/wdosbox-nosync.js",
+      wdosboxUrl: "/wdosbox.js",
       cycles: 750,
     }).ready(function (fs, main) {
       fs.extract("test/digger.zip").then(function () {
-        main(["-c", "DIGGER.COM"])
+        main()
+        //main(["-c", "DIGGER.COM"])
       });
     });
   </script>

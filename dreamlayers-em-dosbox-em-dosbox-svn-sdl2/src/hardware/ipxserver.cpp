@@ -19,6 +19,7 @@
 
 #include "dosbox.h"
 
+#undef C_IPX
 #if C_IPX
 
 #include "dosbox.h"

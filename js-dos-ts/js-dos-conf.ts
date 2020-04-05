@@ -253,11 +253,12 @@ keyboardlayout=auto
 [ipx]
 # ipx: Enable ipx over UDP/IP emulation.
 
-ipx=false
+ipx=true
 
 [autoexec]
 # Lines in this section will be run at startup.
 # You can put your MOUNT lines here.
+ipxnet connect 1.2.3.4 1
 
 # https://js-dos.com
 # █▀▀▀▀▀█ █  ▄▄▄▀▀█ █▀▀▀▀▀█

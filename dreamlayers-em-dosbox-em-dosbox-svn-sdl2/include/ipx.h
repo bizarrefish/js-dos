@@ -20,6 +20,8 @@
 #ifndef DOSBOX_IPX_H
 #define DOSBOX_IPX_H
 
+#define C_IPX 1
+
 // Uncomment this for a lot of debug messages:
 //#define IPX_DEBUGMSG 
 
@@ -69,8 +71,52 @@
 #pragma pack(1)
 #endif
 
-// For Uint8 type
-#include "SDL_net.h"
+/* Bits of SDLNet */
+#include <stdint.h>
+
+typedef uint8_t Uint8;
+typedef uint16_t Uint16;
+typedef uint32_t Uint32;
+
+
+typedef struct {
+    Uint32 host;            /* 32-bit IPv4 host address */
+    Uint16 port;            /* 16-bit protocol port */
+} IPaddress;
+
+
+
+void  SDLNet_Write16(Uint16 value, void *areap)
+{
+    *(Uint16 *)(areap) = (value >> 8) |
+        ((value << 8) & 0xFF00);
+}
+
+void   SDLNet_Write32(Uint32 value, void *areap)
+{
+    *(Uint32 *)(areap) =
+        ((value << 24) & 0xFF000000) |
+        ((value << 8) & 0x00FF0000) |
+        ((value >> 8) & 0x0000FF00) |
+        ((value >> 24) & 0x000000FF);
+}
+
+Uint16 SDLNet_Read16(void *areap)
+{
+    return (*(Uint16*)areap >> 8) |
+        ((*(Uint16*)areap << 8) & 0xFF00);
+}
+
+Uint32 SDLNet_Read32(const void *areap)
+{
+
+    return
+        ((*(Uint32*)areap << 24) & 0xFF000000) |
+        ((*(Uint32*)areap << 8) & 0x00FF0000) |
+        ((*(Uint32*)areap >> 8) & 0x0000FF00) |
+        ((*(Uint32*)areap >> 24) & 0x000000FF);
+}
+
 
 struct PackedIP {
 	Uint32 host;
