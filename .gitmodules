@@ -1,0 +1,3 @@
+[submodule "ipxnet"]
+	path = ipxnet
+	url = git@github.com:bizarrefish/ipxnet.git
