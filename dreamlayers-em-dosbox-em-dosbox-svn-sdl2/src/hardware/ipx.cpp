@@ -510,6 +510,91 @@ Bitu IPX_IntHandler(void) {
 	return CBRET_NONE;
 }
 
+EM_JS(void, my_wait_for_open, (int timeout), {
+  Asyncify.handleSleep(function(wakeUp) {
+    // do an async operation, call wakeUp() when it finishes.
+    
+    setup_my_receive_callback_somehow(wakeUp, timeout);
+  });
+});
+
+
+/* fn to open websocket */
+/* fn to poll websocket for openness */
+/* fn to send on websocket */
+/* fn to pull from websocket (or null) */
+EM_JS(void, wsipxOpen, (), {
+        window.wsipx = new WebSocket("ws://" + location.hostname + ":9001/ipx");
+
+        window.wsipx.binaryType = 'arraybuffer';
+        window.ws_queue = [];
+
+        window.wsipx.onerror = (event) => {
+            console.log("Websocket error: " + event);
+            if(window.ws_wakeup) window.ws_wakeup();
+        };
+
+        window.wsipx.onopen = (event) => {
+            console.log("Websocket open");
+            if(window.ws_wakeup) window.ws_wakeup();
+        };
+
+        window.wsipx.onmessage = (event) => {
+            //console.log("Received message");
+            window.ws_queue.push(new Uint8Array(event.data));
+            if(window.ws_wakeup) window.ws_wakeup();
+        };
+    });
+
+EM_JS(void, wsipxWait, (), {
+        Asyncify.handleSleep(function(wakeUp) {
+                window.ws_wakeup = () => {
+                    window.ws_wakeup = null;
+                    wakeUp();
+                };
+            });
+    });
+
+EM_JS(bool, wsipxIsOpen, (), {
+        console.log("Polling ws state");
+        return window.wsipx.readyState == WebSocket.OPEN;
+    });
+
+EM_JS(size_t, wsipxReceive, (char* buffer, size_t max_len), {
+
+        //console.log("Polling for message");
+        if(window.ws_queue.length == 0)
+            return false;
+
+
+        var msg = window.ws_queue.shift();
+
+        for(var i = 0; i < msg.byteLength; i++) {
+            if(i >= max_len) {
+                return max_len;
+            }
+            HEAPU8[buffer + i] = msg[i];
+        }
+
+        // console.log("Transferred message: " + msg + " type: " + (typeof msg) + " len: " + msg.byteLength);
+        return msg.byteLength;
+    });
+
+EM_JS(bool, wsipxSend, (char* buffer, size_t len), {
+
+        //console.log("Sending message from " + buffer.toString(16));
+        //console.log("len: " + len);
+        var msg = new Uint8Array(len);
+
+        for(var i = 0; i < len; i++) {
+            msg[i] = HEAPU8[buffer + i];
+        }
+//        console.log(msg);
+        window.wsipx.send(msg);
+        return 0;
+    });
+
+
 static void pingAck(IPaddress retAddr) {
 	IPXHeader regHeader;
 	Bits result;
@@ -527,7 +612,9 @@ static void pingAck(IPaddress retAddr) {
 	regHeader.transControl = 0;
 	regHeader.pType = 0x0;
 
-  result = emscripten_websocket_send_binary(ipxClientSocket, &regHeader, sizeof(regHeader));
+  LOG_MSG("Pinging back %d:%d:%d:%d:%d:%d\n", CONVIPX(regHeader.dest.addr.byNode.node));
+  //result = emscripten_websocket_send_binary(ipxClientSocket, &regHeader, sizeof(regHeader));
+  wsipxSend((char*)&regHeader, sizeof(regHeader));
 }
 
 static void pingSend(void) {
@@ -548,8 +635,9 @@ static void pingSend(void) {
 	regHeader.transControl = 0;
 	regHeader.pType = 0x0;
 
-  result = emscripten_websocket_send_binary(ipxClientSocket, &regHeader, sizeof(regHeader));
-	if(!result) {
+  result = wsipxSend((char*)&regHeader, sizeof(regHeader));
+  //result = emscripten_websocket_send_binary(ipxClientSocket, &regHeader, sizeof(regHeader));
+	if(result) {
 		LOG_MSG("IPX: SDLNet_UDP_Send: %d\n", result);
 	}
 }
@@ -588,11 +676,33 @@ static void receivePacket(Bit8u *buffer, Bit16s bufSize) {
 	}
 	LOG_IPX("IPX: RX Packet loss!");
 }
+static void IPX_ClientLoop(void) {
+	int numrecv;
+	// Its amazing how much simpler UDP is than TCP
+  numrecv = wsipxReceive((char*)recvBuffer, IPXBUFFERSIZE);
+	if(numrecv) receivePacket(recvBuffer, numrecv);
+}
 
+
+static void s_hexdump(char* d, size_t len)
+{
+    printf("Dump %zu bytes, contents:", len);
+
+    for(int i = 0; i < len; i++)
+    {
+        if((i % 16) == 0)
+        {
+            printf("\n%03x:", i);
+        }
+        printf(" %02x", (unsigned int)(unsigned char)d[i]);
+    }
+
+    printf("\n");
+}
 
 static char *s_rx_buff = NULL;
-static size_t s_rx_max_len = NULL;
-static bool s_rx_complete = false;
+static volatile size_t s_rx_max_len = NULL;
+static volatile bool s_rx_complete = false;
 static EM_BOOL s_ws_message_callback(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
 {
     printf("message(eventType=%d, userData=%d)\n", eventType, (int)userData);
@@ -604,41 +714,54 @@ static EM_BOOL s_ws_message_callback(int eventType, const EmscriptenWebSocketMes
     }
 
     size_t len = websocketEvent->numBytes;
+
+    s_hexdump((char*)websocketEvent->data, len);
+
     if(len > s_rx_max_len)
         len = s_rx_max_len;
+    printf("copying %zu bytes from %p to %p\n", len, websocketEvent->data, s_rx_buff);
     memcpy(s_rx_buff, websocketEvent->data, len);
+    
+    //free(websocketEvent->data);
+    
+    s_rx_complete = true;
     return 0;
 }
 
-int s_ws_rx(char *buff, size_t max_len)
-{
-    s_rx_buff = buff;
-    s_rx_max_len = max_len;
-    s_rx_complete = false;
-    emscripten_sleep(1);
-    return s_rx_complete;
-}
 
+static bool s_ping_mode = false;
 static EM_BOOL s_ws_message_callback_async(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
 {
-    printf("async message(eventType=%d, userData=%d)\n", eventType, (int)userData);
-    
+    printf("async message(eventType=%d, userData=%d, ping_mode=%d)\n", eventType, (int)userData, s_ping_mode);
+
+    s_hexdump((char*)websocketEvent->data, websocketEvent->numBytes);
+
+
+    if(s_ping_mode)
+    {
+        
+        IPXHeader *hdr = (IPXHeader*)(void*)websocketEvent->data;
+        LOG_MSG("Response from %d:%d:%d:%d:%d:%d\n", CONVIPX(hdr->src.addr.byNode.node));
+    }
+    else
+    {
+        
+        receivePacket(websocketEvent->data, websocketEvent->numBytes);
+    }
     /* Handle this packet */
-    receivePacket(websocketEvent->data, websocketEvent->numBytes);
 
     /* Throw away the data */
-    free(websocketEvent->data);
+    //free(websocketEvent->data);
     return 0;
 }
-
-
 
 void DisconnectFromServer(bool unexpected) {
 	if(unexpected) LOG_MSG("IPX: Server disconnected unexpectedly");
 	if(incomingPacket_connected) {
 		incomingPacket_connected = false;
+		TIMER_DelTickHandler(&IPX_ClientLoop);
     /* TODO: Make sure something weird doesn't happen */
-    emscripten_websocket_close(ipxClientSocket, 0, 0);
+    //emscripten_websocket_close(ipxClientSocket, 0, 0);
 	}
 }
 
@@ -724,9 +847,10 @@ static void sendPacket(ECBClass* sendecb) {
 	LOG_IPX("SEND crc:%2x",packetCRC(&outbuffer[0], packetsize));
 	if(!isloopback) {
     /* Send on websocket */
-    result = emscripten_websocket_send_binary(ipxClientSocket, outbuffer, packetsize);
+    //result = emscripten_websocket_send_binary(ipxClientSocket, outbuffer, packetsize);
+      result = wsipxSend((char*)outbuffer, packetsize);
 
-		if(result == 0) {
+		if(result != 0) {
 			LOG_MSG("IPX: Could not send packet: %d", result);
 			sendecb->setCompletionFlag(COMP_HARDWAREERROR);
 			sendecb->NotifyESR();
@@ -747,22 +871,6 @@ static void sendPacket(ECBClass* sendecb) {
 	sendecb->NotifyESR();
 }
 
-static bool pingCheck(IPXHeader * outHeader) {
-    return false;
-
-    /* TODO: Fix this */
-    //char buffer[1024];
-	// Bits result;
-  
-	// IPXHeader *regHeader;
-
-	// result = SDLNet_UDP_Recv(ipxClientSocket, &regPacket);
-	// if (result != 0) {
-	// 	memcpy(outHeader, regHeader, sizeof(IPXHeader));
-	// 	return true;
-	// }
-	// return false;
-}
 
 static bool s_open_error = false;
 static bool s_open_complete = false;
@@ -783,28 +891,39 @@ static EM_BOOL s_ws_error_callback(int eventType, const EmscriptenWebSocketError
 }
 
 
+
 bool ConnectToServer(char const *strAddr) {
+    
+  IPXHeader regHeader;
 	int numsent;
-	IPXHeader regHeader;
+
+
+  wsipxOpen();
+  /*
   
-  printf("Opening websocket to /ipx\n");
+  printf("Opening websocket\n");
   EmscriptenWebSocketCreateAttributes attrs;
   emscripten_websocket_init_create_attributes(&attrs);
-  attrs.url = "ws:/localhost/ipx";
+  attrs.url = IPX_ENDPOINT_URL;
   ipxClientSocket = emscripten_websocket_new(&attrs);
   
   s_open_complete = false;
   s_open_error = false;
   emscripten_websocket_set_onopen_callback(ipxClientSocket, 0, s_ws_open_callback);
   emscripten_websocket_set_onerror_callback(ipxClientSocket, 0, s_ws_error_callback);
-  
-  /* Wait about 5 seconds */
-  for(int i = 0; i < 5 && !s_open_complete; i++)
-  {
-      emscripten_sleep(1000);
-  }
+  */
 
-  if(s_open_complete && !s_open_error)
+
+  wsipxWait();
+
+  /* Wait about 10 seconds */
+  // for(int i = 0; i < 1000 && !wsipxIsOpen(); i++)
+  // {
+  //     emscripten_sleep(1000);
+  // }
+
+
+  if(wsipxIsOpen())
   {
       /* We set up the websocket properly */
 
@@ -822,32 +941,69 @@ bool ConnectToServer(char const *strAddr) {
 			regHeader.src.addr.byIP.port = 0x0;
 			SDLNet_Write16(0x2, regHeader.src.socket);
 			regHeader.transControl = 0;
-      
-      numsent = emscripten_websocket_send_binary(ipxClientSocket, &regHeader, sizeof(regHeader));
 
-      int result = 0;
+      printf("message at %p\n", (char*)&regHeader);
+      s_hexdump((char*)&regHeader, sizeof(regHeader));
+      wsipxSend((char*)&regHeader, sizeof(regHeader));
+      //numsent = emscripten_websocket_send_binary(ipxClientSocket, &regHeader, sizeof(regHeader));
 
       s_rx_complete = false;
-      emscripten_websocket_set_onmessage_callback(ipxClientSocket, 0, s_ws_message_callback);
-      for(int i = 0 ;i < 5 && !result; i++)
-      {
-          result = s_ws_rx((char*)&regHeader, sizeof(regHeader));
-      }
+      s_rx_buff = (char*)&regHeader;
+      s_rx_max_len = sizeof(regHeader);
+      //emscripten_websocket_set_onmessage_callback(ipxClientSocket, 0, s_ws_message_callback);
 
-      if (result != 0) {
+      /* Send - wakeup on message */
+      wsipxWait();
+
+      /* Got a message ready now */
+      printf("result: %zu\n", wsipxReceive((char*)&regHeader, sizeof(regHeader)));
+
+      //bool received = false;
+      // for(int i = 0 ; i < 1000 && !s_rx_complete; i++)
+      // {
+      //     if(wsipxReceive((char*)&regHeader, sizeof(regHeader)) > 0)
+      //     {
+      //         received = true;
+      //         break;
+      //     }
+      //     emscripten_sleep(1000);
+      // }
+
+
+      //if (received)
+      {
+          s_hexdump((char*)&regHeader,sizeof(regHeader));
           memcpy(localIpxAddr.netnode, regHeader.dest.addr.byNode.node, sizeof(localIpxAddr.netnode));
           memcpy(localIpxAddr.netnum, regHeader.dest.network, sizeof(localIpxAddr.netnum));
           LOG_MSG("IPX: Connected to server.  IPX address is %d:%d:%d:%d:%d:%d", CONVIPX(localIpxAddr.netnode));
 
           incomingPacket_connected = true;
+
+          TIMER_AddTickHandler(&IPX_ClientLoop);
           /* We're async, here in js-land */
-          emscripten_websocket_set_onmessage_callback(ipxClientSocket, 0, s_ws_message_callback_async);
+          //emscripten_websocket_set_onmessage_callback(ipxClientSocket, 0, s_ws_message_callback_async);
           return true;
       }
   }
 
   LOG_MSG("IPX: Unable to connect to server: %d", numsent);
   return false;
+}
+
+
+
+
+static bool pingCheck(IPXHeader * outHeader) {
+	char buffer[1024];
+	Bits result;
+	IPXHeader *regHeader = (IPXHeader*)buffer;
+
+  result = wsipxReceive((char*)buffer, sizeof(buffer));
+	if (result != 0) {
+		memcpy(outHeader, regHeader, sizeof(IPXHeader));
+		return true;
+	}
+	return false;
 }
 
 void IPX_NetworkInit() {
@@ -1057,20 +1213,18 @@ public:
 					WriteOut("IPX Tunneling Client not connected.\n");
 					return;
 				}
-				//TIMER_DelTickHandler(&IPX_ClientLoop);
+        TIMER_DelTickHandler(&IPX_ClientLoop);
 				WriteOut("Sending broadcast ping:\n\n");
 				pingSend();
 				ticks = GetTicks();
 				while((GetTicks() - ticks) < 1500) {
 					CALLBACK_Idle();
-          
-          return;
-          /* TODO: Fix this
 					if(pingCheck(&pingHead)) {
 						WriteOut("Response from %d.%d.%d.%d, port %d time=%dms\n", CONVIP(pingHead.src.addr.byIP.host), SDLNet_Read16(&pingHead.src.addr.byIP.port), GetTicks() - ticks);
-            }*/
+					}
 				}
-				//TIMER_AddTickHandler(&IPX_ClientLoop);
+				TIMER_AddTickHandler(&IPX_ClientLoop);
+
 				return;
 			}
 		}

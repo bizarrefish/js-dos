@@ -48,5 +48,8 @@
   "Pause_Loop()",
   "WGET::Run()",
   "s_ws_rx(char*, size_t)",
-  "ConnectToServer(char const*)"
+  "ConnectToServer(char const*)",
+  "IPXNET::Run()",
+  "PROGRAMS_Handler()"
+
 ]
