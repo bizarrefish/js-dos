@@ -1,5 +1,5 @@
 [
-  "asyncify_sleep_with_yield",
+  "asyncify_sleep",
   "MIXER_CallBack(void*, unsigned char*, int)",
   "main",
   "SHELL_Init()",
@@ -50,6 +50,6 @@
   "s_ws_rx(char*, size_t)",
   "ConnectToServer(char const*)",
   "IPXNET::Run()",
-  "PROGRAMS_Handler()"
-
+  "PROGRAMS_Handler()",
+  "IPX_ESRHandler()"
 ]
